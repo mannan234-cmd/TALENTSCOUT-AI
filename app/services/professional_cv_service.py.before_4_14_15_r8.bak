@@ -1,0 +1,61 @@
+from typing import Any, Dict
+
+from app.models.professional_cv import ProfessionalCV
+
+
+class ProfessionalCVService:
+
+    @staticmethod
+    def _dump(value: Any) -> Dict[str, Any]:
+        if hasattr(value, "model_dump"):
+            return value.model_dump(mode="json")
+        if isinstance(value, dict):
+            return value
+        return {}
+
+    @classmethod
+    def build(cls, improved_cv: Any, extraction: Any = None) -> ProfessionalCV:
+        data = cls._dump(improved_cv)
+        source = cls._dump(extraction)
+
+        contact = (
+            source.get("contact")
+            or source.get("personal_information")
+            or {}
+        )
+
+        if not isinstance(contact, dict):
+            contact = {}
+
+        full_name = (
+            contact.get("full_name")
+            or contact.get("name")
+            or source.get("full_name")
+            or source.get("name")
+            or ""
+        )
+
+        contact_parts = [
+            str(contact[key])
+            for key in ("email", "phone", "location")
+            if contact.get(key)
+        ]
+
+        return ProfessionalCV(
+            full_name=str(full_name),
+            contact_line=" | ".join(contact_parts),
+            professional_summary=str(
+                data.get("professional_summary") or ""
+            ),
+            experience=data.get("experience") or [],
+            skills=data.get("skills") or [],
+            education=data.get("education") or [],
+            certifications=data.get("certifications") or [],
+            projects=data.get("projects") or [],
+            achievements=data.get("achievements") or [],
+            languages=data.get("languages") or [],
+            warnings=data.get("warnings") or [],
+        )
+
+
+professional_cv_service = ProfessionalCVService()

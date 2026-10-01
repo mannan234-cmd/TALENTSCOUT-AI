@@ -1,0 +1,93 @@
+import streamlit as st
+
+
+st.set_page_config(
+    page_title="TalentScout AI",
+    page_icon="🎯",
+    layout="wide"
+)
+
+
+# ============================================================
+# Header
+# ============================================================
+
+st.title("🎯 TalentScout AI")
+
+st.subheader(
+    "Your AI-powered personal career and opportunity assistant"
+)
+
+st.write(
+    "TalentScout AI helps students analyze their profile, "
+    "discover opportunities, identify skill gaps, prepare "
+    "applications, and track their career progress."
+)
+
+
+st.divider()
+
+
+# ============================================================
+# Career Dashboard
+# ============================================================
+
+st.subheader("Career Dashboard")
+
+
+col1, col2, col3 = st.columns(3)
+
+
+with col1:
+
+    st.metric(
+        label="Profile",
+        value="Not Set"
+    )
+
+
+with col2:
+
+    st.metric(
+        label="Opportunities",
+        value="0"
+    )
+
+
+with col3:
+
+    st.metric(
+        label="Applications",
+        value="0"
+    )
+
+
+st.divider()
+
+
+# ============================================================
+# Getting Started
+# ============================================================
+
+st.subheader("🚀 Getting Started")
+
+st.write(
+    "Start by creating your student profile. "
+    "Your master profile will become the foundation for "
+    "future CV analysis, opportunity matching, skill-gap "
+    "analysis, career guidance, and application assistance."
+)
+
+
+if st.button(
+    "👤 Create My Profile",
+    use_container_width=True
+):
+
+    st.switch_page("pages/profile.py")
+
+
+st.info(
+    "🚧 TalentScout AI is currently under development. "
+    "More career intelligence modules will be added step-by-step."
+)

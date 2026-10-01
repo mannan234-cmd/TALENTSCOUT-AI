@@ -1,0 +1,307 @@
+from typing import Any, Dict, List
+
+from app.models.cv_profile_comparison import (
+    CVProfileComparisonResult,
+    CVProfileDifference,
+)
+from app.models.profile import StudentProfile
+
+
+class CVProfileComparisonService:
+
+    PROFILE_FIELDS = [
+        "full_name",
+        "email",
+        "phone",
+        "location",
+        "career_summary",
+        "interests",
+        "certifications",
+        "achievements",
+        "career_level",
+        "years_of_experience",
+    ]
+
+    ALIASES = {
+        "full_name": ["full_name", "name"],
+        "email": ["email", "contact_email"],
+        "phone": ["phone", "phone_number", "mobile", "contact_phone"],
+        "location": ["location", "address", "city"],
+        "career_summary": [
+            "career_summary",
+            "professional_summary",
+            "summary",
+            "profile_summary",
+        ],
+        "interests": ["interests", "career_interests"],
+        "certifications": ["certifications", "certificates"],
+        "achievements": ["achievements", "accomplishments"],
+        "career_level": ["career_level", "seniority", "level"],
+        "years_of_experience": [
+            "years_of_experience",
+            "total_years_experience",
+            "experience_years",
+        ],
+    }
+
+    @staticmethod
+    def _flatten(data: Any) -> Dict[str, Any]:
+        if not isinstance(data, dict):
+            return {}
+
+        result = dict(data)
+
+        for key in (
+            "contact",
+            "personal_information",
+            "personal_info",
+            "profile",
+        ):
+            nested = data.get(key)
+
+            if isinstance(nested, dict):
+                result.update(nested)
+
+        return result
+
+    @classmethod
+    def _get_cv_value(
+        cls,
+        extraction: Dict[str, Any],
+        field: str,
+    ) -> Any:
+
+        flat = cls._flatten(extraction)
+
+        for alias in cls.ALIASES[field]:
+
+            if alias in flat:
+
+                value = flat[alias]
+
+                if value not in (None, "", [], {}):
+                    return value
+
+        return None
+
+    @staticmethod
+    def _normalise(value: Any) -> Any:
+
+        if isinstance(value, list):
+            return sorted(
+                {
+                    str(item).strip().lower()
+                    for item in value
+                    if str(item).strip()
+                }
+            )
+
+        if isinstance(value, str):
+            return " ".join(
+                value.strip().lower().split()
+            )
+
+        return value
+
+    @classmethod
+    def compare(
+        cls,
+        profile: Dict[str, Any],
+        extraction: Dict[str, Any],
+    ) -> CVProfileComparisonResult:
+
+        differences = []
+        warnings = []
+
+        for field in cls.PROFILE_FIELDS:
+
+            profile_value = profile.get(field)
+
+            cv_value = cls._get_cv_value(
+                extraction,
+                field,
+            )
+
+            if cv_value is None:
+                continue
+
+            if (
+                cls._normalise(profile_value)
+                == cls._normalise(cv_value)
+            ):
+                continue
+
+            if profile_value in (
+                None,
+                "",
+                [],
+            ):
+                change_type = "missing_in_profile"
+            else:
+                change_type = "different"
+
+            differences.append(
+                CVProfileDifference(
+                    field=field,
+                    profile_value=profile_value,
+                    cv_value=cv_value,
+                    change_type=change_type,
+                )
+            )
+
+        return CVProfileComparisonResult(
+            has_differences=bool(differences),
+            differences=differences,
+            warnings=warnings,
+        )
+
+    @staticmethod
+    def _profile_string_list(value, field_name):
+        """
+        Convert structured CV list objects into StudentProfile-compatible
+        List[str] values.
+
+        This is applied only when approved CV data is written into the
+        profile. Original AI extraction JSON remains unchanged.
+        """
+        if value is None:
+            return []
+
+        if not isinstance(value, list):
+            value = [value]
+
+        normalized = []
+
+        for item in value:
+
+            if isinstance(item, str):
+                text = item.strip()
+
+                if text:
+                    normalized.append(text)
+
+                continue
+
+            if not isinstance(item, dict):
+                text = str(item).strip()
+
+                if text:
+                    normalized.append(text)
+
+                continue
+
+            if field_name == "certifications":
+
+                name = str(
+                    item.get("name") or ""
+                ).strip()
+
+                organization = str(
+                    item.get("issuing_organization") or ""
+                ).strip()
+
+                if name and organization:
+                    text = f"{name} — {organization}"
+
+                elif name:
+                    text = name
+
+                elif item.get("evidence"):
+                    text = str(
+                        item["evidence"]
+                    ).strip()
+
+                else:
+                    text = ""
+
+            elif field_name == "achievements":
+
+                title = str(
+                    item.get("title") or ""
+                ).strip()
+
+                description = str(
+                    item.get("description") or ""
+                ).strip()
+
+                if title and description:
+                    text = f"{title} — {description}"
+
+                elif title:
+                    text = title
+
+                elif description:
+                    text = description
+
+                elif item.get("evidence"):
+                    text = str(
+                        item["evidence"]
+                    ).strip()
+
+                else:
+                    text = ""
+
+            else:
+
+                text = str(
+                    item.get("name")
+                    or item.get("title")
+                    or item.get("value")
+                    or item.get("evidence")
+                    or ""
+                ).strip()
+
+            if text:
+                normalized.append(text)
+
+        result = []
+        seen = set()
+
+        for item in normalized:
+
+            key = item.casefold()
+
+            if key not in seen:
+                seen.add(key)
+                result.append(item)
+
+        return result
+
+
+    @classmethod
+    def apply_approved_changes(
+        cls,
+        profile,
+        comparison,
+        approved_fields,
+    ):
+        updated = dict(profile)
+
+        for difference in comparison.differences:
+
+            if difference.field not in approved_fields:
+                continue
+
+            value = difference.cv_value
+
+            if difference.field in {
+                "certifications",
+                "achievements",
+                "interests",
+            }:
+                value = cls._profile_string_list(
+                    value,
+                    difference.field,
+                )
+
+            updated[difference.field] = value
+
+        updated.pop("id", None)
+        updated.pop("created_at", None)
+        updated.pop("updated_at", None)
+
+        return StudentProfile.model_validate(updated)
+
+cv_profile_comparison_service = (
+    CVProfileComparisonService()
+)

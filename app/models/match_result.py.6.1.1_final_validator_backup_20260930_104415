@@ -1,0 +1,161 @@
+from __future__ import annotations
+
+from datetime import datetime
+from enum import Enum
+from typing import Any, Dict, List, Optional
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+
+class MatchCategory(str, Enum):
+    """Human-readable deterministic match classification."""
+
+    EXCELLENT = "excellent"
+    STRONG = "strong"
+    MODERATE = "moderate"
+    WEAK = "weak"
+    INELIGIBLE = "ineligible"
+
+
+class MatchResult(BaseModel):
+    """
+    Canonical domain result produced by the Opportunity Matching engine.
+
+    This model intentionally separates:
+    - eligibility
+    - deterministic score
+    - classification
+    - component scores
+    - evidence
+    - explanation
+    - skill gaps
+
+    Later matching phases extend the data feeding this contract rather
+    than creating competing result structures.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    profile_id: str = Field(
+        min_length=1,
+        description="Student/profile identifier.",
+    )
+
+    opportunity_id: str = Field(
+        min_length=1,
+        description="Opportunity identifier.",
+    )
+
+    eligible: bool = Field(
+        description="Whether the student passes hard eligibility gates.",
+    )
+
+    score: float = Field(
+        ge=0.0,
+        le=100.0,
+        description="Deterministic overall match score.",
+    )
+
+    category: MatchCategory = Field(
+        description="Human-readable match category.",
+    )
+
+    component_scores: Dict[str, float] = Field(
+        default_factory=dict,
+        description="Named matching component scores.",
+    )
+
+    evidence: Dict[str, List[str]] = Field(
+        default_factory=dict,
+        description="Evidence supporting matching decisions.",
+    )
+
+    explanations: List[str] = Field(
+        default_factory=list,
+        description="Human-readable reasons for the result.",
+    )
+
+    skill_gaps: List[str] = Field(
+        default_factory=list,
+        description="Skills relevant to the opportunity that the student lacks.",
+    )
+
+    calculated_at: datetime = Field(
+        default_factory=datetime.utcnow,
+        description="UTC timestamp when the match was calculated.",
+    )
+
+    metadata: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Extensible non-authoritative metadata.",
+    )
+
+    @field_validator("component_scores")
+    @classmethod
+    @field_validator("component_scores")
+    @classmethod
+    def _validate_component_scores(
+        cls,
+        component_scores: Dict[str, float],
+    ) -> Dict[str, float]:
+        normalized: Dict[str, float] = {}
+
+        for key, value in component_scores.items():
+            clean_key = str(key).strip()
+
+            if not clean_key:
+                raise ValueError(
+                    "component_scores cannot contain empty keys."
+                )
+
+            numeric_value = float(value)
+
+            if not 0.0 <= numeric_value <= 100.0:
+                raise ValueError(
+                    f"Component score for '{clean_key}' "
+                    "must be between 0 and 100."
+                )
+
+            normalized[clean_key] = numeric_value
+
+        return normalized
+
+
+    @staticmethod
+    def _normalize_text_list(
+        values: List[str],
+    ) -> List[str]:
+        normalized: List[str] = []
+        seen = set()
+
+        for value in values:
+            clean_value = str(value).strip()
+
+            if not clean_value:
+                continue
+
+            identity = clean_value.casefold()
+
+            if identity in seen:
+                continue
+
+            seen.add(identity)
+            normalized.append(clean_value)
+
+        return normalized
+
+    @classmethod
+    def validate_component_scores(
+        cls,
+        component_scores: Dict[str, float],
+    ) -> Dict[str, float]:
+        """Public validation helper for matching services."""
+        return cls._validate_component_scores(component_scores)
+
+    @classmethod
+    def normalize_text_list(
+        cls,
+        values: List[str],
+    ) -> List[str]:
+        """Public normalization helper for evidence/gap lists."""
+        return cls._normalize_text_list(values)
