@@ -1,0 +1,676 @@
+
+-- ============================================================
+-- TalentScout AI
+-- Phase 2 — Database Reproducibility
+-- ============================================================
+--
+-- This migration establishes the canonical database contract
+-- required by the current Phase 1–5 application.
+--
+-- Scope:
+--   1. CV table
+--   2. Certificate table
+--   3. CV/Certificate storage buckets
+--   4. CV/Certificate RLS
+--   5. Canonical Opportunity columns
+--   6. Opportunity data migration from legacy columns
+--
+-- This migration is intentionally idempotent.
+-- ============================================================
+
+
+-- ============================================================
+-- 1. CV TABLE
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS public.cvs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+    profile_id UUID NOT NULL
+        REFERENCES public.profiles(id)
+        ON DELETE CASCADE,
+
+    original_file_name TEXT NOT NULL,
+
+    original_file_path TEXT,
+
+    file_type TEXT NOT NULL,
+
+    file_size_bytes BIGINT,
+
+    extracted_text TEXT,
+
+    extraction_status TEXT NOT NULL
+        DEFAULT 'Not Processed',
+
+    analysis_status TEXT NOT NULL
+        DEFAULT 'Not Analyzed',
+
+    improvement_status TEXT NOT NULL
+        DEFAULT 'Not Reviewed',
+
+    is_active BOOLEAN NOT NULL
+        DEFAULT TRUE,
+
+    ai_extraction JSONB,
+
+    ai_analysis JSONB,
+
+    ai_matching JSONB,
+
+    ai_recommendations JSONB,
+
+    created_at TIMESTAMPTZ NOT NULL
+        DEFAULT NOW(),
+
+    updated_at TIMESTAMPTZ NOT NULL
+        DEFAULT NOW()
+);
+
+
+-- Add missing columns to an already-existing cvs table.
+
+ALTER TABLE public.cvs
+    ADD COLUMN IF NOT EXISTS profile_id UUID;
+
+ALTER TABLE public.cvs
+    ADD COLUMN IF NOT EXISTS original_file_name TEXT;
+
+ALTER TABLE public.cvs
+    ADD COLUMN IF NOT EXISTS original_file_path TEXT;
+
+ALTER TABLE public.cvs
+    ADD COLUMN IF NOT EXISTS file_type TEXT;
+
+ALTER TABLE public.cvs
+    ADD COLUMN IF NOT EXISTS file_size_bytes BIGINT;
+
+ALTER TABLE public.cvs
+    ADD COLUMN IF NOT EXISTS extracted_text TEXT;
+
+ALTER TABLE public.cvs
+    ADD COLUMN IF NOT EXISTS extraction_status TEXT
+        DEFAULT 'Not Processed';
+
+ALTER TABLE public.cvs
+    ADD COLUMN IF NOT EXISTS analysis_status TEXT
+        DEFAULT 'Not Analyzed';
+
+ALTER TABLE public.cvs
+    ADD COLUMN IF NOT EXISTS improvement_status TEXT
+        DEFAULT 'Not Reviewed';
+
+ALTER TABLE public.cvs
+    ADD COLUMN IF NOT EXISTS is_active BOOLEAN
+        DEFAULT TRUE;
+
+ALTER TABLE public.cvs
+    ADD COLUMN IF NOT EXISTS ai_extraction JSONB;
+
+ALTER TABLE public.cvs
+    ADD COLUMN IF NOT EXISTS ai_analysis JSONB;
+
+ALTER TABLE public.cvs
+    ADD COLUMN IF NOT EXISTS ai_matching JSONB;
+
+ALTER TABLE public.cvs
+    ADD COLUMN IF NOT EXISTS ai_recommendations JSONB;
+
+ALTER TABLE public.cvs
+    ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ
+        DEFAULT NOW();
+
+ALTER TABLE public.cvs
+    ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ
+        DEFAULT NOW();
+
+
+CREATE INDEX IF NOT EXISTS idx_cvs_profile_id
+    ON public.cvs(profile_id);
+
+CREATE INDEX IF NOT EXISTS idx_cvs_active
+    ON public.cvs(profile_id, is_active);
+
+CREATE INDEX IF NOT EXISTS idx_cvs_created_at
+    ON public.cvs(created_at DESC);
+
+
+-- ============================================================
+-- 2. CERTIFICATES TABLE
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS public.certificates (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+    profile_id UUID NOT NULL
+        REFERENCES public.profiles(id)
+        ON DELETE CASCADE,
+
+    certificate_name TEXT NOT NULL,
+
+    course_name TEXT,
+
+    issuing_organization TEXT,
+
+    issue_date DATE,
+
+    expiration_date DATE,
+
+    credential_id TEXT,
+
+    credential_url TEXT,
+
+    certificate_file_path TEXT,
+
+    certificate_file_name TEXT,
+
+    certificate_file_type TEXT,
+
+    verification_status TEXT NOT NULL
+        DEFAULT 'Not Verified',
+
+    verification_notes TEXT,
+
+    created_at TIMESTAMPTZ NOT NULL
+        DEFAULT NOW(),
+
+    updated_at TIMESTAMPTZ NOT NULL
+        DEFAULT NOW()
+);
+
+
+CREATE INDEX IF NOT EXISTS idx_certificates_profile_id
+    ON public.certificates(profile_id);
+
+CREATE INDEX IF NOT EXISTS idx_certificates_created_at
+    ON public.certificates(created_at DESC);
+
+
+-- ============================================================
+-- 3. CV RLS
+-- ============================================================
+
+ALTER TABLE public.cvs ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS cvs_select_own
+    ON public.cvs;
+
+DROP POLICY IF EXISTS cvs_insert_own
+    ON public.cvs;
+
+DROP POLICY IF EXISTS cvs_update_own
+    ON public.cvs;
+
+DROP POLICY IF EXISTS cvs_delete_own
+    ON public.cvs;
+
+
+CREATE POLICY cvs_select_own
+ON public.cvs
+FOR SELECT
+TO authenticated
+USING (
+    EXISTS (
+        SELECT 1
+        FROM public.profiles p
+        WHERE p.id = cvs.profile_id
+          AND p.user_id = auth.uid()
+    )
+);
+
+
+CREATE POLICY cvs_insert_own
+ON public.cvs
+FOR INSERT
+TO authenticated
+WITH CHECK (
+    EXISTS (
+        SELECT 1
+        FROM public.profiles p
+        WHERE p.id = cvs.profile_id
+          AND p.user_id = auth.uid()
+    )
+);
+
+
+CREATE POLICY cvs_update_own
+ON public.cvs
+FOR UPDATE
+TO authenticated
+USING (
+    EXISTS (
+        SELECT 1
+        FROM public.profiles p
+        WHERE p.id = cvs.profile_id
+          AND p.user_id = auth.uid()
+    )
+)
+WITH CHECK (
+    EXISTS (
+        SELECT 1
+        FROM public.profiles p
+        WHERE p.id = cvs.profile_id
+          AND p.user_id = auth.uid()
+    )
+);
+
+
+CREATE POLICY cvs_delete_own
+ON public.cvs
+FOR DELETE
+TO authenticated
+USING (
+    EXISTS (
+        SELECT 1
+        FROM public.profiles p
+        WHERE p.id = cvs.profile_id
+          AND p.user_id = auth.uid()
+    )
+);
+
+
+-- ============================================================
+-- 4. CERTIFICATE RLS
+-- ============================================================
+
+ALTER TABLE public.certificates ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS certificates_select_own
+    ON public.certificates;
+
+DROP POLICY IF EXISTS certificates_insert_own
+    ON public.certificates;
+
+DROP POLICY IF EXISTS certificates_update_own
+    ON public.certificates;
+
+DROP POLICY IF EXISTS certificates_delete_own
+    ON public.certificates;
+
+
+CREATE POLICY certificates_select_own
+ON public.certificates
+FOR SELECT
+TO authenticated
+USING (
+    EXISTS (
+        SELECT 1
+        FROM public.profiles p
+        WHERE p.id = certificates.profile_id
+          AND p.user_id = auth.uid()
+    )
+);
+
+
+CREATE POLICY certificates_insert_own
+ON public.certificates
+FOR INSERT
+TO authenticated
+WITH CHECK (
+    EXISTS (
+        SELECT 1
+        FROM public.profiles p
+        WHERE p.id = certificates.profile_id
+          AND p.user_id = auth.uid()
+    )
+);
+
+
+CREATE POLICY certificates_update_own
+ON public.certificates
+FOR UPDATE
+TO authenticated
+USING (
+    EXISTS (
+        SELECT 1
+        FROM public.profiles p
+        WHERE p.id = certificates.profile_id
+          AND p.user_id = auth.uid()
+    )
+)
+WITH CHECK (
+    EXISTS (
+        SELECT 1
+        FROM public.profiles p
+        WHERE p.id = certificates.profile_id
+          AND p.user_id = auth.uid()
+    )
+);
+
+
+CREATE POLICY certificates_delete_own
+ON public.certificates
+FOR DELETE
+TO authenticated
+USING (
+    EXISTS (
+        SELECT 1
+        FROM public.profiles p
+        WHERE p.id = certificates.profile_id
+          AND p.user_id = auth.uid()
+    )
+);
+
+
+-- ============================================================
+-- 5. CANONICAL OPPORTUNITY COLUMNS
+-- ============================================================
+
+ALTER TABLE public.opportunities
+    ADD COLUMN IF NOT EXISTS organization TEXT;
+
+ALTER TABLE public.opportunities
+    ADD COLUMN IF NOT EXISTS remote BOOLEAN;
+
+ALTER TABLE public.opportunities
+    ADD COLUMN IF NOT EXISTS eligibility JSONB
+        DEFAULT '[]'::jsonb;
+
+ALTER TABLE public.opportunities
+    ADD COLUMN IF NOT EXISTS requirements JSONB
+        DEFAULT '[]'::jsonb;
+
+ALTER TABLE public.opportunities
+    ADD COLUMN IF NOT EXISTS skills JSONB
+        DEFAULT '[]'::jsonb;
+
+ALTER TABLE public.opportunities
+    ADD COLUMN IF NOT EXISTS benefits JSONB
+        DEFAULT '[]'::jsonb;
+
+ALTER TABLE public.opportunities
+    ADD COLUMN IF NOT EXISTS source_type TEXT
+        DEFAULT 'other';
+
+ALTER TABLE public.opportunities
+    ADD COLUMN IF NOT EXISTS verified_at TIMESTAMPTZ;
+
+ALTER TABLE public.opportunities
+    ADD COLUMN IF NOT EXISTS fingerprint TEXT;
+
+ALTER TABLE public.opportunities
+    ADD COLUMN IF NOT EXISTS tags JSONB
+        DEFAULT '[]'::jsonb;
+
+ALTER TABLE public.opportunities
+    ADD COLUMN IF NOT EXISTS metadata JSONB
+        DEFAULT '{}'::jsonb;
+
+ALTER TABLE public.opportunities
+    ADD COLUMN IF NOT EXISTS collected_at TIMESTAMPTZ;
+
+-- ============================================================
+-- 6. LEGACY OPPORTUNITY DATA MIGRATION
+-- ============================================================
+
+-- The current canonical opportunities schema already uses:
+-- organization, remote, eligibility, requirements, skills,
+-- benefits, source_type, verified_at, fingerprint, tags,
+-- metadata, and collected_at.
+--
+-- No legacy-column migration is required here.
+-- Older columns such as organization_name, work_mode,
+-- required_skills, and education_requirements do not exist
+-- in the current schema and must not be referenced.
+
+
+-- ============================================================
+-- 7. OPPORTUNITY INDEXES
+-- ============================================================
+
+CREATE INDEX IF NOT EXISTS idx_opportunities_organization
+    ON public.opportunities(organization);
+
+CREATE INDEX IF NOT EXISTS idx_opportunities_type
+    ON public.opportunities(opportunity_type);
+
+CREATE INDEX IF NOT EXISTS idx_opportunities_verification_status
+    ON public.opportunities(verification_status);
+
+CREATE INDEX IF NOT EXISTS idx_opportunities_deadline
+    ON public.opportunities(deadline);
+
+CREATE INDEX IF NOT EXISTS idx_opportunities_source_url
+    ON public.opportunities(source_url);
+
+CREATE INDEX IF NOT EXISTS idx_opportunities_skills_gin
+    ON public.opportunities
+    USING GIN(skills);
+
+CREATE INDEX IF NOT EXISTS idx_opportunities_tags_gin
+    ON public.opportunities
+    USING GIN(tags);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_opportunities_fingerprint_unique
+    ON public.opportunities(fingerprint)
+    WHERE fingerprint IS NOT NULL;
+
+
+-- ============================================================
+-- 8. PRIVATE STORAGE BUCKETS
+-- ============================================================
+
+INSERT INTO storage.buckets (
+    id,
+    name,
+    public
+)
+VALUES (
+    'cv-documents',
+    'cv-documents',
+    FALSE
+)
+ON CONFLICT (id)
+DO UPDATE SET public = FALSE;
+
+
+INSERT INTO storage.buckets (
+    id,
+    name,
+    public
+)
+VALUES (
+    'certificate-documents',
+    'certificate-documents',
+    FALSE
+)
+ON CONFLICT (id)
+DO UPDATE SET public = FALSE;
+
+
+-- ============================================================
+-- 9. CV STORAGE POLICIES
+-- ============================================================
+
+DROP POLICY IF EXISTS cv_storage_select_own
+    ON storage.objects;
+
+DROP POLICY IF EXISTS cv_storage_insert_own
+    ON storage.objects;
+
+DROP POLICY IF EXISTS cv_storage_update_own
+    ON storage.objects;
+
+DROP POLICY IF EXISTS cv_storage_delete_own
+    ON storage.objects;
+
+
+CREATE POLICY cv_storage_select_own
+ON storage.objects
+FOR SELECT
+TO authenticated
+USING (
+    bucket_id = 'cv-documents'
+    AND EXISTS (
+        SELECT 1
+        FROM public.profiles p
+        WHERE p.user_id = auth.uid()
+          AND name LIKE p.id::text || '/%'
+    )
+);
+
+
+CREATE POLICY cv_storage_insert_own
+ON storage.objects
+FOR INSERT
+TO authenticated
+WITH CHECK (
+    bucket_id = 'cv-documents'
+    AND EXISTS (
+        SELECT 1
+        FROM public.profiles p
+        WHERE p.user_id = auth.uid()
+          AND name LIKE p.id::text || '/%'
+    )
+);
+
+
+CREATE POLICY cv_storage_update_own
+ON storage.objects
+FOR UPDATE
+TO authenticated
+USING (
+    bucket_id = 'cv-documents'
+    AND EXISTS (
+        SELECT 1
+        FROM public.profiles p
+        WHERE p.user_id = auth.uid()
+          AND name LIKE p.id::text || '/%'
+    )
+)
+WITH CHECK (
+    bucket_id = 'cv-documents'
+    AND EXISTS (
+        SELECT 1
+        FROM public.profiles p
+        WHERE p.user_id = auth.uid()
+          AND name LIKE p.id::text || '/%'
+    )
+);
+
+
+CREATE POLICY cv_storage_delete_own
+ON storage.objects
+FOR DELETE
+TO authenticated
+USING (
+    bucket_id = 'cv-documents'
+    AND EXISTS (
+        SELECT 1
+        FROM public.profiles p
+        WHERE p.user_id = auth.uid()
+          AND name LIKE p.id::text || '/%'
+    )
+);
+
+
+-- ============================================================
+-- 10. CERTIFICATE STORAGE POLICIES
+-- ============================================================
+
+DROP POLICY IF EXISTS certificate_storage_select_own
+    ON storage.objects;
+
+DROP POLICY IF EXISTS certificate_storage_insert_own
+    ON storage.objects;
+
+DROP POLICY IF EXISTS certificate_storage_update_own
+    ON storage.objects;
+
+DROP POLICY IF EXISTS certificate_storage_delete_own
+    ON storage.objects;
+
+
+CREATE POLICY certificate_storage_select_own
+ON storage.objects
+FOR SELECT
+TO authenticated
+USING (
+    bucket_id = 'certificate-documents'
+    AND EXISTS (
+        SELECT 1
+        FROM public.profiles p
+        WHERE p.user_id = auth.uid()
+          AND (
+              name LIKE 'certificates/' || p.id::text || '/%'
+              OR name LIKE p.id::text || '/%'
+          )
+    )
+);
+
+
+CREATE POLICY certificate_storage_insert_own
+ON storage.objects
+FOR INSERT
+TO authenticated
+WITH CHECK (
+    bucket_id = 'certificate-documents'
+    AND EXISTS (
+        SELECT 1
+        FROM public.profiles p
+        WHERE p.user_id = auth.uid()
+          AND (
+              name LIKE 'certificates/' || p.id::text || '/%'
+              OR name LIKE p.id::text || '/%'
+          )
+    )
+);
+
+
+CREATE POLICY certificate_storage_update_own
+ON storage.objects
+FOR UPDATE
+TO authenticated
+USING (
+    bucket_id = 'certificate-documents'
+    AND EXISTS (
+        SELECT 1
+        FROM public.profiles p
+        WHERE p.user_id = auth.uid()
+          AND (
+              name LIKE 'certificates/' || p.id::text || '/%'
+              OR name LIKE p.id::text || '/%'
+          )
+    )
+)
+WITH CHECK (
+    bucket_id = 'certificate-documents'
+    AND EXISTS (
+        SELECT 1
+        FROM public.profiles p
+        WHERE p.user_id = auth.uid()
+          AND (
+              name LIKE 'certificates/' || p.id::text || '/%'
+              OR name LIKE p.id::text || '/%'
+          )
+    )
+);
+
+
+CREATE POLICY certificate_storage_delete_own
+ON storage.objects
+FOR DELETE
+TO authenticated
+USING (
+    bucket_id = 'certificate-documents'
+    AND EXISTS (
+        SELECT 1
+        FROM public.profiles p
+        WHERE p.user_id = auth.uid()
+          AND (
+              name LIKE 'certificates/' || p.id::text || '/%'
+              OR name LIKE p.id::text || '/%'
+          )
+    )
+);
+
+
+-- ============================================================
+-- 11. FINAL INDEXES
+-- ============================================================
+
+CREATE INDEX IF NOT EXISTS idx_cvs_profile_created
+    ON public.cvs(profile_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_certificates_profile_created
+    ON public.certificates(profile_id, created_at DESC);

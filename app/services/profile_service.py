@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from typing import Optional
 from uuid import UUID
 
@@ -6,25 +8,60 @@ from app.services.supabase_service import supabase
 
 
 class ProfileService:
+    """Ownership-aware CRUD for the authenticated user's profile."""
 
     TABLE_NAME = "profiles"
 
-    # ========================================================
-    # CREATE PROFILE
-    # ========================================================
+    @staticmethod
+    def _current_user_id() -> str:
+        try:
+            response = supabase.auth.get_user()
+        except Exception as exc:
+            raise RuntimeError(
+                "Unable to determine the authenticated user."
+            ) from exc
+
+        user = getattr(response, "user", None)
+
+        if user is None or not getattr(user, "id", None):
+            raise PermissionError(
+                "An authenticated user is required."
+            )
+
+        return str(user.id)
+
+    @staticmethod
+    def _profile_payload(profile: StudentProfile) -> dict:
+        return profile.model_dump(
+            exclude_none=True,
+            mode="json",
+        )
+
+    def get_current_profile(self) -> Optional[dict]:
+        user_id = self._current_user_id()
+
+        response = (
+            supabase
+            .table(self.TABLE_NAME)
+            .select("*")
+            .eq("user_id", user_id)
+            .limit(1)
+            .execute()
+        )
+
+        return response.data[0] if response.data else None
 
     def create_profile(
         self,
-        profile: StudentProfile
+        profile: StudentProfile,
     ) -> dict:
 
-        profile_data = (
-            profile
-            .model_dump(
-                exclude_none=True,
-                mode="json"
-            )
-        )
+        user_id = self._current_user_id()
+
+        profile_data = self._profile_payload(profile)
+
+        # Always attach the authenticated user.
+        profile_data["user_id"] = user_id
 
         response = (
             supabase
@@ -41,91 +78,66 @@ class ProfileService:
 
         return response.data[0]
 
-    # ========================================================
-    # GET PROFILE
-    # ========================================================
-
     def get_profile(
         self,
-        profile_id: UUID
+        profile_id: UUID,
     ) -> Optional[dict]:
+
+        user_id = self._current_user_id()
 
         response = (
             supabase
             .table(self.TABLE_NAME)
             .select("*")
-            .eq(
-                "id",
-                str(profile_id)
-            )
+            .eq("id", str(profile_id))
+            .eq("user_id", user_id)
             .limit(1)
             .execute()
         )
 
-        if not response.data:
-            return None
-
-        return response.data[0]
-
-    # ========================================================
-    # UPDATE PROFILE
-    # ========================================================
+        return response.data[0] if response.data else None
 
     def update_profile(
         self,
         profile_id: UUID,
-        profile: StudentProfile
+        profile: StudentProfile,
     ) -> Optional[dict]:
 
-        profile_data = (
-            profile
-            .model_dump(
-                exclude_none=True,
-                mode="json"
-            )
-        )
+        user_id = self._current_user_id()
+
+        profile_data = self._profile_payload(profile)
+
+        # Never allow ownership transfer.
+        profile_data.pop("user_id", None)
 
         response = (
             supabase
             .table(self.TABLE_NAME)
             .update(profile_data)
-            .eq(
-                "id",
-                str(profile_id)
-            )
+            .eq("id", str(profile_id))
+            .eq("user_id", user_id)
             .execute()
         )
 
-        if not response.data:
-            return None
-
-        return response.data[0]
-
-    # ========================================================
-    # DELETE PROFILE
-    # ========================================================
+        return response.data[0] if response.data else None
 
     def delete_profile(
         self,
-        profile_id: UUID
+        profile_id: UUID,
     ) -> bool:
+
+        user_id = self._current_user_id()
 
         response = (
             supabase
             .table(self.TABLE_NAME)
             .delete()
-            .eq(
-                "id",
-                str(profile_id)
-            )
+            .eq("id", str(profile_id))
+            .eq("user_id", user_id)
             .execute()
         )
 
         return bool(response.data)
 
-
-# ============================================================
-# SERVICE INSTANCE
-# ============================================================
 
 profile_service = ProfileService()

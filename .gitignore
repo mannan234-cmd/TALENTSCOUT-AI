@@ -27,3 +27,13 @@ Thumbs.db
 # Temporary files
 *.tmp
 *.temp
+*.pyc
+.pytest_cache/
+.env.*
+!.env.example
+*.bak
+*.backup
+*_backup*
+*_before_*
+_phase6_quarantine/
+tmp_*/

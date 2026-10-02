@@ -1,49 +1,58 @@
+from __future__ import annotations
 
 import os
 
-from supabase import create_client, Client
+from supabase import Client, create_client
 
 from app.config.settings import settings
 
 
 class SupabaseService:
+    """Supabase clients with an explicit security boundary."""
+
     def __init__(self):
         if not settings.SUPABASE_URL:
-            raise ValueError(
-                "SUPABASE_URL is not configured."
-            )
+            raise ValueError("SUPABASE_URL is not configured.")
 
-        # Backend/server-side Supabase secret.
-        # Never hard-code this into the project.
-        server_key = os.getenv(
-            "SUPABASE_SERVICE_ROLE_KEY"
-        )
-
-        # Backward-compatible fallback.
-        #
-        # Existing local development can continue using
-        # SUPABASE_KEY when no server-side secret is present.
-        if server_key:
-            key = server_key
-            self.key_source = "server_secret"
-        else:
-            if not settings.SUPABASE_KEY:
-                raise ValueError(
-                    "SUPABASE_KEY is not configured."
-                )
-
-            key = settings.SUPABASE_KEY
-            self.key_source = "configured_key"
+        if not settings.SUPABASE_KEY:
+            raise ValueError("SUPABASE_KEY is not configured.")
 
         self.client: Client = create_client(
             settings.SUPABASE_URL,
-            key,
+            settings.SUPABASE_KEY,
         )
 
     @property
     def supabase(self) -> Client:
+        """Normal application client using Auth + RLS."""
         return self.client
+
+    @property
+    def admin_client(self) -> Client:
+        """
+        Service-role client.
+
+        Use ONLY for trusted backend/admin operations.
+        Never use this for normal user-facing CRUD.
+        """
+        service_role_key = getattr(
+            settings,
+            "SUPABASE_SERVICE_ROLE_KEY",
+            None,
+        ) or os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+
+        if not service_role_key:
+            raise ValueError(
+                "SUPABASE_SERVICE_ROLE_KEY is required "
+                "for admin operations."
+            )
+
+        return create_client(
+            settings.SUPABASE_URL,
+            service_role_key,
+        )
 
 
 supabase_service = SupabaseService()
+
 supabase = supabase_service.client

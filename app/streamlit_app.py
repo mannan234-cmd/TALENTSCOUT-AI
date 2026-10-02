@@ -558,10 +558,17 @@ if is_authenticated_user():
 # Configuration
 # ============================================================
 
+# Optional external FastAPI endpoint.
+#
+# Streamlit Cloud must not assume a local API server is running.
+# If TALENTSCOUT_API_URL is not configured, API-backed calls
+# remain disabled instead of targeting localhost.
 API_BASE_URL = os.getenv(
     "TALENTSCOUT_API_URL",
-    "http://127.0.0.1:8000",
-)
+    "",
+).strip().rstrip("/")
+
+API_ENABLED = bool(API_BASE_URL)
 
 
 # ============================================================
