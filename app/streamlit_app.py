@@ -6,28 +6,25 @@ import uuid
 import sys
 import site
 
-# TALENTSCOUT_SUPABASE_RUNTIME_BOOTSTRAP_V4
+# TALENTSCOUT_SUPABASE_RUNTIME_BOOTSTRAP_V5
 #
-# The project contains a local `supabase/` migrations directory.
-# Streamlit may execute the app with the project directory already
-# present on sys.path, causing Python to resolve that directory as
-# a namespace package instead of the installed Supabase SDK.
-#
-# Temporarily remove ALL project paths before importing the third-party
-# SDK, then restore the original paths immediately afterwards.
+# Resolve the installed Supabase SDK without hard-coded local-machine paths.
+# The repository contains a local `supabase/` migrations directory, which
+# can otherwise shadow the installed Supabase Python package.
 
 import sys as _sys
 import importlib as _importlib
+from pathlib import Path as _Path
 
-_PROJECT_ROOT_FOR_SUPABASE = "/content/drive/MyDrive/TalentScout_AI"
-_APP_ROOT_FOR_SUPABASE = "/content/drive/MyDrive/TalentScout_AI/app"
+_PROJECT_ROOT_FOR_SUPABASE = _Path(__file__).resolve().parent.parent
+_APP_ROOT_FOR_SUPABASE = _Path(__file__).resolve().parent
 
 _ORIGINAL_SYS_PATH_FOR_SUPABASE = list(_sys.path)
 
 _PROJECT_PATHS_FOR_SUPABASE = {
     "",
-    _PROJECT_ROOT_FOR_SUPABASE,
-    _APP_ROOT_FOR_SUPABASE,
+    str(_PROJECT_ROOT_FOR_SUPABASE),
+    str(_APP_ROOT_FOR_SUPABASE),
 }
 
 _sys.path[:] = [
@@ -35,7 +32,6 @@ _sys.path[:] = [
     if _p not in _PROJECT_PATHS_FOR_SUPABASE
 ]
 
-# Remove a previously-created local namespace module if present.
 _local_supabase_module = _sys.modules.get("supabase")
 
 if (
@@ -56,9 +52,13 @@ if not hasattr(_talentscout_supabase, "Client"):
         "Installed Supabase package did not expose Client."
     )
 
-# Keep the successfully imported third-party module cached in sys.modules.
-# Restore project paths only after the SDK has been resolved.
 _sys.path[:] = _ORIGINAL_SYS_PATH_FOR_SUPABASE
+
+# Streamlit Cloud may execute the entrypoint without the repository
+# root being importable as the `app` package. Ensure the repository
+# root is explicitly available before application imports run.
+if str(_PROJECT_ROOT_FOR_SUPABASE) not in _sys.path:
+    _sys.path.insert(0, str(_PROJECT_ROOT_FOR_SUPABASE))
 
 del _importlib
 del _local_supabase_module
